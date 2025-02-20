@@ -1,122 +1,222 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:fl_chart/fl_chart.dart';
 
 void main() {
-  runApp(const MyApp());
+  runApp(MyApp());
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
+      home: AccelerometerVisualizer(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
+class AccelerometerVisualizer extends StatefulWidget {
   @override
-  State<MyHomePage> createState() => _MyHomePageState();
+  _AccelerometerVisualizerState createState() => _AccelerometerVisualizerState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+class _AccelerometerVisualizerState extends State<AccelerometerVisualizer> {
+  BluetoothDevice? targetDevice;
+  BluetoothCharacteristic? targetCharacteristic;
+  String accelData = "No data yet";
+  static const String arduinoMacAddress = "D4:AB:D0:31:C3:3F";
+  List<double> xData = [];
+  List<double> yData = [];
+  List<double> zData = [];
+  final int maxPoints = 50;
 
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+  @override
+  void initState() {
+    super.initState();
+    requestPermissions().then((granted) {
+      if (granted) {
+        startScanning();
+      } else {
+        setState(() {
+          accelData = "Permissions denied. Enable Bluetooth and Location in Settings.";
+        });
+      }
     });
+  }
+
+  Future<bool> requestPermissions() async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.bluetoothScan,
+      Permission.bluetoothConnect,
+      Permission.location,
+    ].request();
+
+    bool allGranted = statuses[Permission.bluetoothScan]!.isGranted &&
+        statuses[Permission.bluetoothConnect]!.isGranted &&
+        statuses[Permission.location]!.isGranted;
+
+    if (!allGranted) {
+      print("Permissions status: $statuses");
+      openAppSettings();
+    }
+    return allGranted;
+  }
+
+  void startScanning() async {
+    try {
+      print("Checking Bluetooth support...");
+      if (!await FlutterBluePlus.isSupported) {
+        setState(() => accelData = "Bluetooth not supported");
+        return;
+      }
+
+      print("Checking Bluetooth state...");
+      if (await FlutterBluePlus.adapterState.first != BluetoothAdapterState.on) {
+        setState(() => accelData = "Please turn on Bluetooth");
+        return;
+      }
+
+      print("Starting BLE scan...");
+      await FlutterBluePlus.startScan(timeout: Duration(seconds: 15));
+
+      FlutterBluePlus.scanResults.listen((results) {
+        for (ScanResult r in results) {
+          if (r.device.id.toString().toUpperCase() == arduinoMacAddress.toUpperCase()) {
+            print("Found Arduino at $arduinoMacAddress! Connecting...");
+            FlutterBluePlus.stopScan();
+            connectToDevice(r.device);
+            break;
+          }
+        }
+      }, onError: (e) => print("Scan error: $e"));
+
+      await Future.delayed(Duration(seconds: 15));
+      if (FlutterBluePlus.isScanningNow) {
+        print("Stopping scan manually...");
+        await FlutterBluePlus.stopScan();
+        if (targetDevice == null) {
+          print("No Arduino found, retrying scan...");
+          startScanning();
+        }
+      }
+    } catch (e) {
+      print("Scanning failed: $e");
+      setState(() => accelData = "Scan failed: $e");
+    }
+  }
+
+  void connectToDevice(BluetoothDevice device) async {
+    try {
+      print("Connecting to ${device.id}...");
+      await device.connect();
+      setState(() {
+        targetDevice = device;
+        accelData = "Connected to Arduino";
+      });
+
+      print("Discovering services...");
+      List<BluetoothService> services = await device.discoverServices();
+      for (BluetoothService service in services) {
+        if (service.uuid.toString() == "19b10000-e8f2-537e-4f6c-d104768a1214") {
+          for (BluetoothCharacteristic characteristic in service.characteristics) {
+            if (characteristic.uuid.toString() == "19b10001-e8f2-537e-4f6c-d104768a1214") {
+              targetCharacteristic = characteristic;
+              await characteristic.setNotifyValue(true);
+              characteristic.value.listen((value) {
+                String data = String.fromCharCodes(value);
+                updateGraph(data);
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      print("Connection failed: $e");
+      setState(() => accelData = "Connection failed: $e");
+    }
+  }
+
+  void updateGraph(String data) {
+    List<String> values = data.split(",");
+    if (values.length == 3) {
+      double x = double.tryParse(values[0]) ?? 0;
+      double y = double.tryParse(values[1]) ?? 0;
+      double z = double.tryParse(values[2]) ?? 0;
+
+      setState(() {
+        accelData = data;
+        xData.add(x);
+        yData.add(y);
+        zData.add(z);
+        if (xData.length > maxPoints) {
+          xData.removeAt(0);
+          yData.removeAt(0);
+          zData.removeAt(0);
+        }
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
     return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
+      appBar: AppBar(title: Text("Accelerometer Visualizer")),
+      body: Column(
+        children: [
+          Padding(
+            padding: EdgeInsets.all(16.0),
+            child: Text("Latest Data: $accelData", style: TextStyle(fontSize: 16)),
+          ),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.all(16.0),
+              child: LineChart(
+                LineChartData(
+                  gridData: FlGridData(show: true),
+                  titlesData: FlTitlesData(show: true),
+                  borderData: FlBorderData(show: true),
+                  minX: 0,
+                  maxX: maxPoints.toDouble(),
+                  minY: -2,
+                  maxY: 2,
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: xData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
+                      isCurved: true,
+                      color: Colors.red,
+                      dotData: FlDotData(show: false),
+                    ),
+                    LineChartBarData(
+                      spots: yData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
+                      isCurved: true,
+                      color: Colors.green,
+                      dotData: FlDotData(show: false),
+                    ),
+                    LineChartBarData(
+                      spots: zData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
+                      isCurved: true,
+                      color: Colors.blue,
+                      dotData: FlDotData(show: false),
+                    ),
+                  ],
+                ),
+              ),
             ),
-          ],
-        ),
+          ),
+          ElevatedButton(
+            onPressed: targetDevice != null ? () => targetDevice!.disconnect() : null,
+            child: Text("Disconnect"),
+          ),
+          SizedBox(height: 20),
+        ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
     );
+  }
+
+  @override
+  void dispose() {
+    targetDevice?.disconnect();
+    super.dispose();
   }
 }

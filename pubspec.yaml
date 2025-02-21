@@ -47,6 +47,7 @@ dependencies:
   flutter_reactive_ble: ^5.4.0
   permission_handler: ^11.3.1
   path_provider: ^2.1.4
+  url_launcher: ^6.3.0  # Add this line
 
 dev_dependencies:
   flutter_test:

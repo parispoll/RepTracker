@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'dart:math';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 void main() {
   runApp(MyApp());
@@ -11,17 +15,17 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: AccelerometerVisualizer(),
+      home: RepTracker(),
     );
   }
 }
 
-class AccelerometerVisualizer extends StatefulWidget {
+class RepTracker extends StatefulWidget {
   @override
-  _AccelerometerVisualizerState createState() => _AccelerometerVisualizerState();
+  _RepTrackerState createState() => _RepTrackerState();
 }
 
-class _AccelerometerVisualizerState extends State<AccelerometerVisualizer> {
+class _RepTrackerState extends State<RepTracker> {
   BluetoothDevice? targetDevice;
   BluetoothCharacteristic? targetCharacteristic;
   String accelData = "No data yet";
@@ -31,6 +35,18 @@ class _AccelerometerVisualizerState extends State<AccelerometerVisualizer> {
   List<double> zData = [];
   final int maxPoints = 50;
 
+  int repCount = 0;
+  int setCount = 0;
+  List<int> repsPerSet = [];
+  double lastMagnitude = 0;
+  bool isRepInProgress = false;
+  DateTime? lastRepTime;
+  static const double repThreshold = 1.5;
+  static const int setRestThreshold = 5000;
+
+  // Store all accelerometer data with timestamps
+  List<Map<String, dynamic>> allAccelData = [];
+
   @override
   void initState() {
     super.initState();
@@ -39,7 +55,7 @@ class _AccelerometerVisualizerState extends State<AccelerometerVisualizer> {
         startScanning();
       } else {
         setState(() {
-          accelData = "Permissions denied. Enable Bluetooth and Location in Settings.";
+          accelData = "Permissions denied. Enable Bluetooth and Location.";
         });
       }
     });
@@ -50,11 +66,13 @@ class _AccelerometerVisualizerState extends State<AccelerometerVisualizer> {
       Permission.bluetoothScan,
       Permission.bluetoothConnect,
       Permission.location,
+      Permission.storage,
     ].request();
 
     bool allGranted = statuses[Permission.bluetoothScan]!.isGranted &&
         statuses[Permission.bluetoothConnect]!.isGranted &&
-        statuses[Permission.location]!.isGranted;
+        statuses[Permission.location]!.isGranted &&
+        statuses[Permission.storage]!.isGranted;
 
     if (!allGranted) {
       print("Permissions status: $statuses");
@@ -125,7 +143,7 @@ class _AccelerometerVisualizerState extends State<AccelerometerVisualizer> {
               await characteristic.setNotifyValue(true);
               characteristic.value.listen((value) {
                 String data = String.fromCharCodes(value);
-                updateGraph(data);
+                processData(data);
               });
             }
           }
@@ -137,18 +155,23 @@ class _AccelerometerVisualizerState extends State<AccelerometerVisualizer> {
     }
   }
 
-  void updateGraph(String data) {
+  void processData(String data) {
     List<String> values = data.split(",");
     if (values.length == 3) {
       double x = double.tryParse(values[0]) ?? 0;
       double y = double.tryParse(values[1]) ?? 0;
       double z = double.tryParse(values[2]) ?? 0;
+      DateTime timestamp = DateTime.now();
+
+      double magnitude = sqrt(x * x + y * y + z * z);
+      detectRep(magnitude);
 
       setState(() {
         accelData = data;
         xData.add(x);
         yData.add(y);
         zData.add(z);
+        allAccelData.add({'timestamp': timestamp, 'x': x, 'y': y, 'z': z}); // Store all data
         if (xData.length > maxPoints) {
           xData.removeAt(0);
           yData.removeAt(0);
@@ -158,15 +181,89 @@ class _AccelerometerVisualizerState extends State<AccelerometerVisualizer> {
     }
   }
 
+  void detectRep(double magnitude) {
+    DateTime now = DateTime.now();
+
+    if (magnitude > repThreshold && !isRepInProgress && (lastMagnitude <= repThreshold)) {
+      isRepInProgress = true;
+    } else if (magnitude <= repThreshold && isRepInProgress) {
+      repCount++;
+      isRepInProgress = false;
+      lastRepTime = now;
+      print("Rep detected: $repCount in current set");
+    }
+
+    if (lastRepTime != null && now.difference(lastRepTime!).inMilliseconds > setRestThreshold && repCount > 0) {
+      setState(() {
+        repsPerSet.add(repCount);
+        setCount++;
+        repCount = 0;
+        lastRepTime = null;
+        print("Set completed: $setCount sets, last set had ${repsPerSet.last} reps");
+      });
+    }
+
+    lastMagnitude = magnitude;
+  }
+
+  Future<void> saveSessionLog() async {
+    final directory = await getExternalStorageDirectory();
+    final file = File('${directory!.path}/rep_session_${DateTime.now().toIso8601String()}.csv');
+    
+    // Build CSV content
+    String csv = "Accelerometer Data\n";
+    csv += "Timestamp,X,Y,Z\n";
+    for (var data in allAccelData) {
+      csv += "${data['timestamp'].toIso8601String()},${data['x']},${data['y']},${data['z']}\n";
+    }
+    csv += "\n"; // Blank line to separate sections
+    csv += "Reps and Sets Summary\n";
+    csv += "Set,Reps\n";
+    for (int i = 0; i < repsPerSet.length; i++) {
+      csv += "${i + 1},${repsPerSet[i]}\n";
+    }
+    csv += "Total Sets: $setCount, Total Reps: ${repsPerSet.isEmpty ? repCount : repsPerSet.reduce((a, b) => a + b) + repCount}\n";
+
+    await file.writeAsString(csv);
+
+    // Open the specific file
+    final Uri fileUri = Uri.file(file.path);
+    try {
+      if (await canLaunchUrl(fileUri)) {
+        await launchUrl(
+          fileUri,
+          mode: LaunchMode.externalApplication,
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("No app available to open the file. Saved to ${file.path}")),
+        );
+      }
+    } catch (e) {
+      print("Error launching file: $e");
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Failed to open file. Saved to ${file.path}")),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text("Accelerometer Visualizer")),
+      appBar: AppBar(title: Text("Rep Tracker")),
       body: Column(
         children: [
           Padding(
             padding: EdgeInsets.all(16.0),
-            child: Text("Latest Data: $accelData", style: TextStyle(fontSize: 16)),
+            child: Column(
+              children: [
+                Text("Status: $accelData", style: TextStyle(fontSize: 16)),
+                SizedBox(height: 8),
+                Text("Current Set: $setCount"),
+                Text("Reps in Current Set: $repCount"),
+                Text("Total Reps: ${repsPerSet.isEmpty ? repCount : repsPerSet.reduce((a, b) => a + b) + repCount}"),
+              ],
+            ),
           ),
           Expanded(
             child: Padding(
@@ -178,8 +275,8 @@ class _AccelerometerVisualizerState extends State<AccelerometerVisualizer> {
                   borderData: FlBorderData(show: true),
                   minX: 0,
                   maxX: maxPoints.toDouble(),
-                  minY: -2,
-                  maxY: 2,
+                  minY: -10,
+                  maxY: 10,
                   lineBarsData: [
                     LineChartBarData(
                       spots: xData.asMap().entries.map((e) => FlSpot(e.key.toDouble(), e.value)).toList(),
@@ -204,9 +301,24 @@ class _AccelerometerVisualizerState extends State<AccelerometerVisualizer> {
               ),
             ),
           ),
-          ElevatedButton(
-            onPressed: targetDevice != null ? () => targetDevice!.disconnect() : null,
-            child: Text("Disconnect"),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              ElevatedButton(
+                onPressed: targetDevice != null ? () => targetDevice!.disconnect() : null,
+                child: Text("Disconnect"),
+              ),
+              SizedBox(width: 16),
+              ElevatedButton(
+                onPressed: targetDevice == null ? startScanning : null,
+                child: Text("Reconnect"),
+              ),
+              SizedBox(width: 16),
+              ElevatedButton(
+                onPressed: repsPerSet.isNotEmpty || repCount > 0 ? saveSessionLog : null,
+                child: Text("Save Session"),
+              ),
+            ],
           ),
           SizedBox(height: 20),
         ],

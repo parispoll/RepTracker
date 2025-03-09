@@ -44,7 +44,6 @@ class _RepTrackerState extends State<RepTracker> {
   static const double repThreshold = 1.5;
   static const int setRestThreshold = 5000;
 
-  // Store all accelerometer data with timestamps
   List<Map<String, dynamic>> allAccelData = [];
 
   @override
@@ -96,6 +95,7 @@ class _RepTrackerState extends State<RepTracker> {
       }
 
       print("Starting BLE scan...");
+      setState(() => accelData = "Scanning for Arduino...");
       await FlutterBluePlus.startScan(timeout: Duration(seconds: 15));
 
       FlutterBluePlus.scanResults.listen((results) {
@@ -114,8 +114,7 @@ class _RepTrackerState extends State<RepTracker> {
         print("Stopping scan manually...");
         await FlutterBluePlus.stopScan();
         if (targetDevice == null) {
-          print("No Arduino found, retrying scan...");
-          startScanning();
+          setState(() => accelData = "No Arduino found. Tap Reconnect to try again.");
         }
       }
     } catch (e) {
@@ -127,6 +126,7 @@ class _RepTrackerState extends State<RepTracker> {
   void connectToDevice(BluetoothDevice device) async {
     try {
       print("Connecting to ${device.id}...");
+      setState(() => accelData = "Connecting...");
       await device.connect();
       setState(() {
         targetDevice = device;
@@ -155,6 +155,24 @@ class _RepTrackerState extends State<RepTracker> {
     }
   }
 
+  void disconnectDevice() async {
+    if (targetDevice != null) {
+      try {
+        print("Disconnecting from ${targetDevice!.id}...");
+        setState(() => accelData = "Disconnecting...");
+        await targetDevice!.disconnect();
+        setState(() {
+          targetDevice = null;
+          targetCharacteristic = null;
+          accelData = "Disconnected. Tap Reconnect to connect again.";
+        });
+      } catch (e) {
+        print("Disconnect failed: $e");
+        setState(() => accelData = "Disconnect failed: $e");
+      }
+    }
+  }
+
   void processData(String data) {
     List<String> values = data.split(",");
     if (values.length == 3) {
@@ -171,7 +189,7 @@ class _RepTrackerState extends State<RepTracker> {
         xData.add(x);
         yData.add(y);
         zData.add(z);
-        allAccelData.add({'timestamp': timestamp, 'x': x, 'y': y, 'z': z}); // Store all data
+        allAccelData.add({'timestamp': timestamp, 'x': x, 'y': y, 'z': z});
         if (xData.length > maxPoints) {
           xData.removeAt(0);
           yData.removeAt(0);
@@ -207,16 +225,54 @@ class _RepTrackerState extends State<RepTracker> {
   }
 
   Future<void> saveSessionLog() async {
+    TextEditingController fileNameController = TextEditingController();
+    String? fileName;
+
+    // Show dialog to input file name
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text("Save Session"),
+          content: TextField(
+            controller: fileNameController,
+            decoration: InputDecoration(
+              hintText: "Enter file name (e.g., bicep_curls)",
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: Text("Cancel"),
+            ),
+            TextButton(
+              onPressed: () {
+                fileName = fileNameController.text.trim();
+                if (fileName!.isEmpty) {
+                  fileName = "rep_session_${DateTime.now().toIso8601String()}";
+                }
+                Navigator.pop(context);
+              },
+              child: Text("Save"),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (fileName == null) return; // User canceled
+
     final directory = await getExternalStorageDirectory();
-    final file = File('${directory!.path}/rep_session_${DateTime.now().toIso8601String()}.csv');
+    final file = File('${directory!.path}/$fileName.csv');
     
-    // Build CSV content
     String csv = "Accelerometer Data\n";
     csv += "Timestamp,X,Y,Z\n";
     for (var data in allAccelData) {
       csv += "${data['timestamp'].toIso8601String()},${data['x']},${data['y']},${data['z']}\n";
     }
-    csv += "\n"; // Blank line to separate sections
+    csv += "\n";
     csv += "Reps and Sets Summary\n";
     csv += "Set,Reps\n";
     for (int i = 0; i < repsPerSet.length; i++) {
@@ -226,14 +282,10 @@ class _RepTrackerState extends State<RepTracker> {
 
     await file.writeAsString(csv);
 
-    // Open the specific file
     final Uri fileUri = Uri.file(file.path);
     try {
       if (await canLaunchUrl(fileUri)) {
-        await launchUrl(
-          fileUri,
-          mode: LaunchMode.externalApplication,
-        );
+        await launchUrl(fileUri, mode: LaunchMode.externalApplication);
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("No app available to open the file. Saved to ${file.path}")),
@@ -305,7 +357,7 @@ class _RepTrackerState extends State<RepTracker> {
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               ElevatedButton(
-                onPressed: targetDevice != null ? () => targetDevice!.disconnect() : null,
+                onPressed: targetDevice != null ? disconnectDevice : null,
                 child: Text("Disconnect"),
               ),
               SizedBox(width: 16),

@@ -5,7 +5,7 @@ import numpy as np
 import kineticstoolkit.lab as ktk
 
 # File path to your CSV (update this to your file location)
-csv_file = "C:/Users/paris/imu_visualizer/dataAnalysis/data/romanianDeadlift2.csv"  # Example path
+csv_file = "C:/Users/paris/imu_visualizer/dataAnalysis/data/Raw_data/barbeleows_2025-03-30T15-06-49.910440.csv"  # Example path
 
 
 # Read the CSV, skipping the "Reps and Sets Summary" section

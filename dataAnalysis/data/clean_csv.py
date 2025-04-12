@@ -2,7 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
-csv_file = "C:/Users/paris/imu_visualizer/dataAnalysis/data/Raw_data/Squats3_2025-03-30T19-32-54.523199.csv"
+csv_file = "C:/Users/paris/imu_visualizer/dataAnalysis/data/Labeled_data/bicepCurl1_50Hz_2025-04-06T14-03-38.353847_labeled.csv"
 
 # Validate file
 try:
@@ -36,7 +36,7 @@ df = pd.read_csv(cleaned_file)
 if len(df) == 0:
     print("Error: No data found in the CSV.")
     exit(1)
-
+#
 # # Reverse X, Y, Z values
 # df['X'] = df['X'] * -1
 # df['Y'] = df['Y'] * -1
@@ -128,13 +128,13 @@ for i in range(check_window, len(df) - check_window):
 # Convert Timestamp to seconds relative to start for plotting
 df['Time_Sec'] = (df['Timestamp'] - df['Timestamp'].iloc[0]).dt.total_seconds()
 
-# # Save labeled file
-# labeled_file = csv_file.replace('.csv', '_labeled.csv')
-# df.drop(columns=['Delta_X', 'Delta_Y', 'Delta_Z', 'Change_Magnitude', 'TimeDiff']).to_csv(labeled_file, index=False)
-# print(
-#     f"Prepared {labeled_file} for Edge Impulse upload with X, Y, Z values reversed and labels (Idle/Transition/Exercise) added.")
-# print("First few rows of corrected data with labels:")
-# print(df[['Timestamp', 'X', 'Y', 'Z', 'Label']].head(10))
+# Save labeled file
+labeled_file = csv_file.replace('.csv', '_labeled.csv')
+df.drop(columns=['Delta_X', 'Delta_Y', 'Delta_Z', 'Change_Magnitude', 'TimeDiff']).to_csv(labeled_file, index=False)
+print(
+    f"Prepared {labeled_file} for Edge Impulse upload with X, Y, Z values reversed and labels (Idle/Transition/Exercise) added.")
+print("First few rows of corrected data with labels:")
+print(df[['Timestamp', 'X', 'Y', 'Z', 'Label']].head(10))
 
 # Plotting
 plt.figure(figsize=(12, 6))

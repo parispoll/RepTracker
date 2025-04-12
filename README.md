@@ -1,16 +1,15 @@
-# imu_visualizer
+# IMU Visualizer
 
-A new Flutter project.
+A Flutter app and Python script for tracking workouts using an IMU sensor. The app connects to an Arduino via Bluetooth, processes accelerometer data, detects reps, classifies exercises, and exports the data to a CSV file. The Python script visualizes the Z-axis data and rep detection.
 
-## Getting Started
+## Features
+- Connects to an Arduino via Bluetooth to receive IMU data.
+- Detects reps based on Z-axis acceleration peaks.
+- Classifies exercises (Squat, BicepCurl, RomanianDeadlift, BarbellRows) for each set.
+- Exports session data to a CSV file in the Downloads directory.
+- Visualizes the data using a Python script with Matplotlib.
 
-This project is a starting point for a Flutter application.
-
-A few resources to get you started if this is your first Flutter project:
-
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Setup
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/your-username/imu_visualizer.git

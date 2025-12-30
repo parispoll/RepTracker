@@ -1,15 +1,27 @@
-# IMU Visualizer
+# RepTracker – Wearable Exercise Tracking System
 
-A Flutter app and Python script for tracking workouts using an IMU sensor. The app connects to an Arduino via Bluetooth, processes accelerometer data, detects reps, classifies exercises, and exports the data to a CSV file. The Python script visualizes the Z-axis data and rep detection.
+## Overview
+RepTracker is an ongoing project focused on developing a wearable device (watch-like form factor) that tracks repetitions, sets, and classifies exercises during workouts.
 
 ## Features
-- Connects to an Arduino via Bluetooth to receive IMU data.
-- Detects reps based on Z-axis acceleration peaks.
-- Classifies exercises (Squat, BicepCurl, RomanianDeadlift, BarbellRows) for each set.
-- Exports session data to a CSV file in the Downloads directory.
-- Visualizes the data using a Python script with Matplotlib.
+- Repetition and set tracking
+- Exercise classification
+- Sensor-based motion analysis
+- Designed for embedded and wearable environments
 
-## Setup
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/your-username/imu_visualizer.git
+## Technologies Used
+- C
+- Embedded-friendly software design
+- Signal processing concepts
+
+## Motivation
+The goal of this project is to combine engineering, software, and sports science to create an intelligent workout tracking system that provides meaningful progress data.
+
+## Current Status
+- Software and algorithm development in progress
+- Focus on motion pattern recognition
+
+## Future Work
+- Hardware integration
+- Machine learning-based classification
+- Mobile app synchronization

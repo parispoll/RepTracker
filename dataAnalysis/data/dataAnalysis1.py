@@ -62,12 +62,6 @@ def edit_events(ts):
 
 
 
-
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy.signal import argrelextrema
-
-
 def plot_z_with_filtered_local_max(ts, title="Local Maxima Below Zero in Z-Axis Data"):
     """
     Plots the Z-axis data from a TimeSeries object and marks only local maxima that are below zero.

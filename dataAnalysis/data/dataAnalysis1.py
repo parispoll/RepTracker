@@ -4,6 +4,8 @@ import io
 import numpy as np
 import kineticstoolkit.lab as ktk
 
+from scipy.signal import find_peaks
+
 # File path to your CSV (update this to your file location)
 csv_file = "C:/Users/paris/imu_visualizer/dataAnalysis/data/Raw_data/barbeleows_2025-03-30T15-06-49.910440.csv"  # Example path
 
@@ -108,11 +110,6 @@ def plot_z_with_filtered_local_max(ts, title="Local Maxima Below Zero in Z-Axis 
     plt.tight_layout()
     plt.show()
 
-
-from scipy.signal import find_peaks
-
-
-from scipy.signal import find_peaks
 
 def detect_cycles_peak_based(ts, min_height=0, min_distance=30, min_prominence=0.5):
     """
